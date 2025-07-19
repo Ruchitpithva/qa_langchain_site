@@ -185,7 +185,7 @@ function App() {
         </>
       )}
 
-      {sessionId && (selectedProvider === "gemini" || secretCode) && (
+      {sessionId && (
         <>
           <Box my={2}>
             <TextField
