@@ -6,18 +6,29 @@ import {
   TextField,
   Paper,
   Divider,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from "@mui/material";
 import axios from "axios";
 import { useDispatch, useSelector } from "react-redux";
-import { addMessage, resetChat, setSessionId } from "./store/chatSlice";
+import {
+  addMessage,
+  resetChat,
+  setSessionId,
+  setSecretCode,
+} from "./store/chatSlice";
 import { useSnackbar } from "notistack";
 import _ from "lodash";
 
-const API_BASE = "http://localhost:3000/api"; // change if deployed
+const API_BASE = "https://qa-langchain-openai.onrender.com/api"; // change if deployed
 
 function App() {
   const dispatch = useDispatch();
-  const { sessionId, messages } = useSelector((state) => state.chat);
+  const { sessionId, messages, secretCode } = useSelector(
+    (state) => state.chat
+  );
 
   const [file, setFile] = useState(null);
   const [question, setQuestion] = useState("");
@@ -26,23 +37,33 @@ function App() {
   const [fileLoading, setFileLoading] = useState(false);
   const [endChatLoading, setEndChatLoading] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
+  const [selectedProvider, setSelectedProvider] = useState("");
+  const [secretInput, setSecretInput] = useState("");
   // dispatch(resetChat());
 
   const handleUpload = async () => {
     setFileLoading(true);
     const formData = new FormData();
     formData.append("file", file);
+    if (secretInput) {
+      formData.append("secret_code", secretInput);
+    }
     try {
       const res = await axios.post(`${API_BASE}/upload-file`, formData);
       if (res?.data?.status) {
         setFileLoading(false);
         dispatch(setSessionId(res?.data?.data));
+        dispatch(setSecretCode(secretInput));
         enqueueSnackbar(res?.data?.message, { variant: "success" });
       } else {
         setFileLoading(false);
+        setSecretInput("");
+        setSelectedProvider("");
         enqueueSnackbar(res?.data?.message, { variant: "error" });
       }
     } catch (err) {
+      setSecretInput("");
+      setSelectedProvider("");
       setFileLoading(false);
       enqueueSnackbar(err?.message, { variant: "error" });
     }
@@ -54,19 +75,27 @@ function App() {
       const res = await axios.post(`${API_BASE}/ask`, {
         session_id: sessionId,
         question,
+        platform: selectedProvider,
       });
       if (res?.data?.status) {
         enqueueSnackbar(res?.data?.message, { variant: "success" });
         dispatch(addMessage({ question, answer: res?.data?.data?.answer }));
         setQuestion("");
       } else {
+        setSecretInput("");
+        setSelectedProvider("");
+        setLoading(false);
         enqueueSnackbar(res?.data?.message, { variant: "error" });
       }
     } catch (err) {
       setLoading(false);
+      setSecretInput("");
+      setSelectedProvider("");
       enqueueSnackbar(err?.message, { variant: "error" });
     } finally {
       setLoading(false);
+      setSecretInput("");
+      setSelectedProvider("");
     }
   };
 
@@ -81,16 +110,27 @@ function App() {
         dispatch(resetChat());
         setFile(null);
         setEndChatLoading(false);
+        setSecretInput("");
+        setSelectedProvider("");
         if (fileInputRef.current) fileInputRef.current.value = null;
         enqueueSnackbar(endChat?.data?.message, { variant: "success" });
       } else {
         setEndChatLoading(false);
+        setSecretInput("");
+        setSelectedProvider("");
         enqueueSnackbar(endChat?.data?.message, { variant: "error" });
       }
     } catch (error) {
       setEndChatLoading(false);
+      setSecretInput("");
+      setSelectedProvider("");
       enqueueSnackbar(error?.message, { variant: "error" });
     }
+  };
+
+  const handleProviderChange = (event) => {
+    setSelectedProvider(event.target.value);
+    setSecretInput("");
   };
 
   return (
@@ -101,6 +141,29 @@ function App() {
 
       {!sessionId && (
         <>
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel id="provider-label">Select Provider</InputLabel>
+            <Select
+              labelId="provider-label"
+              value={selectedProvider}
+              onChange={handleProviderChange}
+              label="Select Provider"
+            >
+              <MenuItem value="gemini">Gemini</MenuItem>
+              <MenuItem value="chatgpt">ChatGPT</MenuItem>
+            </Select>
+          </FormControl>
+
+          {selectedProvider === "chatgpt" && (
+            <TextField
+              label="Secret Code"
+              fullWidth
+              sx={{ mb: 2 }}
+              value={secretInput}
+              onChange={(e) => setSecretInput(e.target.value)}
+            />
+          )}
+
           <input
             type="file"
             accept=".pdf"
@@ -111,14 +174,18 @@ function App() {
           <Button
             variant="contained"
             onClick={handleUpload}
-            disabled={!file | fileLoading ? true : false}
+            disabled={
+              !file ||
+              fileLoading ||
+              (selectedProvider === "chatgpt" && !secretInput)
+            }
           >
-            {fileLoading ? "Uploding..." : "Upload file"}
+            {fileLoading ? "Uploading..." : "Upload File"}
           </Button>
         </>
       )}
 
-      {sessionId && (
+      {sessionId && (selectedProvider === "gemini" || secretCode) && (
         <>
           <Box my={2}>
             <TextField
