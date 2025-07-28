@@ -10,6 +10,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  FormHelperText,
 } from "@mui/material";
 import axios from "axios";
 import { useDispatch, useSelector } from "react-redux";
@@ -22,7 +23,7 @@ import {
 import { useSnackbar } from "notistack";
 import _ from "lodash";
 
-const API_BASE = "https://qa-langchain-openai.onrender.com/api"; // change if deployed
+const API_BASE = "https://qa-langchain-openai.onrender.com/api"; // update if needed
 
 function App() {
   const dispatch = useDispatch();
@@ -39,37 +40,62 @@ function App() {
   const { enqueueSnackbar } = useSnackbar();
   const [selectedProvider, setSelectedProvider] = useState("");
   const [secretInput, setSecretInput] = useState("");
-  // dispatch(resetChat());
+
+  const [errors, setErrors] = useState({
+    provider: false,
+    file: false,
+    secret: false,
+  });
+
+  const validateFields = () => {
+    let valid = true;
+    const newErrors = { provider: false, file: false, secret: false };
+
+    if (!selectedProvider) {
+      newErrors.provider = true;
+      valid = false;
+    }
+    if (!file) {
+      newErrors.file = true;
+      valid = false;
+    }
+    if (selectedProvider === "chatgpt" && !secretInput.trim()) {
+      newErrors.secret = true;
+      valid = false;
+    }
+
+    setErrors(newErrors);
+    return valid;
+  };
 
   const handleUpload = async () => {
+    if (!validateFields()) return;
+
     setFileLoading(true);
     const formData = new FormData();
     formData.append("file", file);
-    if (secretInput) {
-      formData.append("secret_code", secretInput);
-    }
+    if (secretInput) formData.append("secret_code", secretInput);
+
     try {
       const res = await axios.post(`${API_BASE}/upload-file`, formData);
       if (res?.data?.status) {
-        setFileLoading(false);
         dispatch(setSessionId(res?.data?.data));
         dispatch(setSecretCode(secretInput));
         enqueueSnackbar(res?.data?.message, { variant: "success" });
       } else {
-        setFileLoading(false);
         setSecretInput("");
         setSelectedProvider("");
         enqueueSnackbar(res?.data?.message, { variant: "error" });
       }
     } catch (err) {
-      setSecretInput("");
-      setSelectedProvider("");
-      setFileLoading(false);
       enqueueSnackbar(err?.message, { variant: "error" });
+    } finally {
+      setFileLoading(false);
     }
   };
 
   const handleAsk = async () => {
+    if (!question.trim()) return;
     setLoading(true);
     try {
       const res = await axios.post(`${API_BASE}/ask`, {
@@ -82,20 +108,12 @@ function App() {
         dispatch(addMessage({ question, answer: res?.data?.data?.answer }));
         setQuestion("");
       } else {
-        setSecretInput("");
-        setSelectedProvider("");
-        setLoading(false);
         enqueueSnackbar(res?.data?.message, { variant: "error" });
       }
     } catch (err) {
-      setLoading(false);
-      setSecretInput("");
-      setSelectedProvider("");
       enqueueSnackbar(err?.message, { variant: "error" });
     } finally {
       setLoading(false);
-      setSecretInput("");
-      setSelectedProvider("");
     }
   };
 
@@ -105,32 +123,32 @@ function App() {
       const endChat = await axios.post(`${API_BASE}/end-chat`, {
         session_id: sessionId,
       });
-      console.log("endChat", endChat);
       if (endChat?.data?.status) {
         dispatch(resetChat());
         setFile(null);
-        setEndChatLoading(false);
         setSecretInput("");
         setSelectedProvider("");
         if (fileInputRef.current) fileInputRef.current.value = null;
         enqueueSnackbar(endChat?.data?.message, { variant: "success" });
       } else {
-        setEndChatLoading(false);
-        setSecretInput("");
-        setSelectedProvider("");
         enqueueSnackbar(endChat?.data?.message, { variant: "error" });
       }
     } catch (error) {
-      setEndChatLoading(false);
-      setSecretInput("");
-      setSelectedProvider("");
       enqueueSnackbar(error?.message, { variant: "error" });
+    } finally {
+      setEndChatLoading(false);
     }
   };
 
   const handleProviderChange = (event) => {
     setSelectedProvider(event.target.value);
     setSecretInput("");
+    setErrors({ ...errors, provider: false, secret: false });
+  };
+
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
+    setErrors({ ...errors, file: false });
   };
 
   return (
@@ -141,7 +159,7 @@ function App() {
 
       {!sessionId && (
         <>
-          <FormControl fullWidth sx={{ mb: 2 }}>
+          <FormControl fullWidth sx={{ mb: 2 }} error={errors.provider}>
             <InputLabel id="provider-label">Select Provider</InputLabel>
             <Select
               labelId="provider-label"
@@ -152,6 +170,9 @@ function App() {
               <MenuItem value="gemini">Gemini</MenuItem>
               <MenuItem value="chatgpt">ChatGPT</MenuItem>
             </Select>
+            {errors.provider && (
+              <FormHelperText>Provider is required</FormHelperText>
+            )}
           </FormControl>
 
           {selectedProvider === "chatgpt" && (
@@ -160,24 +181,40 @@ function App() {
               fullWidth
               sx={{ mb: 2 }}
               value={secretInput}
-              onChange={(e) => setSecretInput(e.target.value)}
+              error={errors.secret}
+              helperText={errors.secret ? "Secret code is required" : ""}
+              onChange={(e) => {
+                setSecretInput(e.target.value);
+                if (e.target.value.trim()) {
+                  setErrors({ ...errors, secret: false });
+                }
+              }}
             />
           )}
 
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={(e) => setFile(e.target.files[0])}
-            ref={fileInputRef}
-            style={{ marginBottom: "1rem" }}
-          />
+          <Box mb={2}>
+            <input
+              type="file"
+              accept=".pdf"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              style={{ marginBottom: "0.5rem" }}
+            />
+            {errors.file && (
+              <Typography color="error" variant="body2">
+                File is required
+              </Typography>
+            )}
+          </Box>
+
           <Button
             variant="contained"
             onClick={handleUpload}
             disabled={
-              !file ||
               fileLoading ||
-              (selectedProvider === "chatgpt" && !secretInput)
+              !selectedProvider ||
+              !file ||
+              (selectedProvider === "chatgpt" && !secretInput.trim())
             }
           >
             {fileLoading ? "Uploading..." : "Upload File"}
@@ -199,10 +236,9 @@ function App() {
               sx={{ mt: 2 }}
               variant="contained"
               onClick={handleAsk}
-              disabled={loading | !question ? true : false}
-              size="medium"
+              disabled={loading || !question.trim()}
             >
-              {loading ? "Find Answer..." : "Ask A Question"}
+              {loading ? "Finding Answer..." : "Ask A Question"}
             </Button>
           </Box>
 
@@ -226,9 +262,9 @@ function App() {
             color="error"
             sx={{ mt: 2 }}
             onClick={handleEndChat}
-            disabled={endChatLoading ? true : false}
+            disabled={endChatLoading}
           >
-            {endChatLoading ? "Ending" : "End Chat"}
+            {endChatLoading ? "Ending..." : "End Chat"}
           </Button>
         </>
       )}
